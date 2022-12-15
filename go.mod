@@ -8,6 +8,5 @@ require (
 )
 
 require (
-	github.com/kaitai-io/kaitai_struct_go_runtime v0.10.0 // indirect
 	golang.org/x/sys v0.0.0-20220808155132-1c4a2a72c664 // indirect
 )
