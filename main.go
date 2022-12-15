@@ -3,9 +3,10 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
-	"unsafe"
+	"strings"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
@@ -13,64 +14,84 @@ import (
 
 const LINE_SIZE = 102890
 
-//go:linkname safeArrayCreate github.com/go-ole/go-ole.safeArrayCreate
-func safeArrayCreate(variantType ole.VT, dimensions uint32, bounds *ole.SafeArrayBound) (*ole.SafeArray, error)
-
 func main() {
+	logFile, _ := os.OpenFile("./logs/output.log", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+	log.SetOutput(io.Writer(logFile))
+
 	dispatch := JVOpen()
 	defer JVClose(dispatch)
 
-	bound := &ole.SafeArrayBound{Elements: 102890, LowerBound: 0}
-	safeArray, _ := safeArrayCreate(ole.VT_UI1, 1, bound)
-	variant := ole.NewVariant(ole.VT_ARRAY|ole.VT_UI1, int64(uintptr(unsafe.Pointer(safeArray))))
-
 	var (
-		f   *os.File
-		buf *bufio.Writer
+		file *os.File
+		buf  *bufio.Writer
 	)
 
-	for i := 0; true; i++ { // each file
-		var filename string
-		res := oleutil.MustCallMethod(dispatch, "JVGets", &variant, LINE_SIZE, &filename)
-		filepath := fmt.Sprintf("%s/rawdata/%s.dat", os.Getenv("JVDataPath"), filename)
+	newFile := true
 
-		if fileExists(filepath) {
-			oleutil.MustCallMethod(dispatch, "JVSkip")
-			log.Printf("Skipped %s", filename)
+	for i := 0; true; i++ {
+		var (
+			filename string
+			line     string
+		)
+
+		if newFile {
+			_, err := oleutil.CallMethod(dispatch, "JVRead", &line, 102890, &filename)
+			if err != nil {
+				log.Fatal(err)
+			}
+			filepath := fmt.Sprintf("%s/rawdata/%s.dat", os.Getenv("JVDataPath"), filename)
+
+			if !(strings.HasPrefix(filename, "RA") || strings.HasPrefix(filename, "SE")) {
+				oleutil.MustCallMethod(dispatch, "JVSkip")
+				log.Printf("Skipped %s", filename)
+				continue
+			}
+
+			if fileExists(filepath) {
+				oleutil.MustCallMethod(dispatch, "JVSkip")
+				log.Printf("Skipped %s", filename)
+				continue
+			}
+
+			file = fileOpen(filepath)
+			if err != nil {
+				log.Fatal(err)
+			}
+			buf = bufio.NewWriter(file)
+			defer file.Close()
+			log.Printf("Open %s", filename)
+
+			_, err = buf.Write([]byte(line))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			newFile = false
 			continue
 		}
 
-		f = fileOpen(filepath)
-		buf = bufio.NewWriter(f)
-		defer f.Close()
-		log.Printf("Open %s", filename)
-
-		for j := 0; true; j++ { // each line
-			switch res.Value().(int32) {
-			case 0:
-				log.Printf("Completed")
-			case -1:
-				log.Printf("Get %s finished.", filename)
-			default:
-				bytes := variant.ToArray().ToByteArray()
-				_, err := buf.Write(bytes)
-				if err != nil {
-					log.Fatal(err)
-				}
-			}
+		res, err := oleutil.CallMethod(dispatch, "JVRead", &line, 102890, &filename)
+		if err != nil {
+			log.Fatal(err)
 		}
 
-		buf.Flush()
-	}
-}
+		status := res.Value().(int32)
+		if status == 0 {
+			log.Print("Completed")
+			break
+		}
+		if status == -1 {
+			log.Printf("Get %s finished.", filename)
+			buf.Flush()
+			newFile = true
+			continue
+		}
 
-func JVGets(disp *ole.IDispatch, variant *ole.VARIANT) bool {
-	res, err := oleutil.CallMethod(disp, "JVGets", variant, 102890, "")
-	if err != nil {
-		log.Fatal(err)
+		_, err = buf.Write([]byte(line))
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
-	defer res.Clear()
-	return res.Val == 0
 }
 
 func JVOpen() (dispatch *ole.IDispatch) {
@@ -91,11 +112,13 @@ func JVOpen() (dispatch *ole.IDispatch) {
 	oleutil.MustCallMethod(dispatch, "JVSetSavePath", fmt.Sprintf("%s/jvdata", os.Getenv("JVDataPath")))
 	oleutil.MustCallMethod(dispatch, "JVSetSaveFlag", 1)
 
-	res = oleutil.MustCallMethod(dispatch, "JVOpen", "RACE", os.Getenv("JVLastUpdate"), 4, 0, 0, "")
+	res = oleutil.MustCallMethod(dispatch, "JVOpen", "RACE", os.Getenv("JVLastUpdate"), 1, 0, 0, "")
 	code = int(res.Val)
 	if code != 0 {
 		log.Fatalf("JVOpen failed with code: %d", code)
 	}
+
+	log.Print("JVOpen succeed")
 
 	return dispatch
 }

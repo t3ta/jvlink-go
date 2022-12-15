@@ -4,7 +4,6 @@ go 1.19
 
 require (
 	github.com/go-ole/go-ole v1.2.6
-	golang.org/x/text v0.3.7
 )
 
 require (
