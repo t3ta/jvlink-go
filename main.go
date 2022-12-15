@@ -32,7 +32,7 @@ func main() {
 	for i := 0; true; i++ { // each file
 		var filename string
 		res := oleutil.MustCallMethod(dispatch, "JVGets", &variant, LINE_SIZE, &filename)
-		filepath := fmt.Sprintf("./data/%s.dat", filename)
+		filepath := fmt.Sprintf("%s/rawdata/%s.dat", os.Getenv("JVDataPath"), filename)
 
 		if fileExists(filepath) {
 			oleutil.MustCallMethod(dispatch, "JVSkip")
@@ -51,7 +51,6 @@ func main() {
 				log.Printf("Completed")
 			case -1:
 				log.Printf("Get %s finished.", filename)
-				break
 			default:
 				bytes := variant.ToArray().ToByteArray()
 				_, err := buf.Write(bytes)
@@ -89,10 +88,10 @@ func JVOpen() (dispatch *ole.IDispatch) {
 		log.Fatalf("JVInit failed with code: %d", code)
 	}
 
-	oleutil.MustCallMethod(dispatch, "JVSetSavePath", "C:/Keiba/jvdata")
+	oleutil.MustCallMethod(dispatch, "JVSetSavePath", fmt.Sprintf("%s/jvdata", os.Getenv("JVDataPath")))
 	oleutil.MustCallMethod(dispatch, "JVSetSaveFlag", 1)
 
-	res = oleutil.MustCallMethod(dispatch, "JVOpen", "RACE", "20000101000000", 4, 0, 0, "")
+	res = oleutil.MustCallMethod(dispatch, "JVOpen", "RACE", os.Getenv("JVLastUpdate"), 4, 0, 0, "")
 	code = int(res.Val)
 	if code != 0 {
 		log.Fatalf("JVOpen failed with code: %d", code)
